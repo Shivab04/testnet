@@ -194,9 +194,14 @@ async def register(user: UserCreate):
     user_dict = user.dict()
     del user_dict["password"]
     user_dict["hashed_password"] = hashed_password
+    user_dict["id"] = str(uuid.uuid4())
+    user_dict["is_verified"] = False
+    user_dict["is_active"] = True
+    user_dict["created_at"] = datetime.utcnow()
+    user_dict["updated_at"] = datetime.utcnow()
     
-    user_obj = User(**user_dict)
-    await db.users.insert_one(user_obj.dict())
+    await db.users.insert_one(user_dict)
+    user_obj = User(**{k: v for k, v in user_dict.items() if k != "hashed_password"})
     
     # Create empty profile
     profile_obj = Profile(user_id=user_obj.id)
