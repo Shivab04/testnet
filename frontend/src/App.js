@@ -13,7 +13,11 @@ import {
   Send,
   LogOut,
   Menu,
-  X
+  X,
+  Calendar,
+  Clock,
+  Trash2,
+  Plus
 } from 'lucide-react';
 import './App.css';
 
