@@ -123,6 +123,32 @@ class MessageCreate(BaseModel):
     conversation_id: str
     content: str
 
+class Schedule(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    mentor_id: str
+    seeker_id: str
+    start_time: datetime
+    end_time: datetime
+    status: str = "scheduled"  # scheduled, completed, cancelled
+    title: str = ""
+    description: str = ""
+    meeting_link: str = ""
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ScheduleCreate(BaseModel):
+    mentor_id: str
+    start_time: datetime
+    end_time: datetime
+    title: str = ""
+    description: str = ""
+
+class ScheduleUpdate(BaseModel):
+    status: str
+    title: Optional[str] = None
+    description: Optional[str] = None
+    meeting_link: Optional[str] = None
+
 class Token(BaseModel):
     access_token: str
     token_type: str
@@ -356,6 +382,117 @@ async def create_message(
     
     return message
 
+# ================================
+# SCHEDULING ROUTES
+# ================================
+
+@api_router.post("/schedules", response_model=Schedule)
+async def create_schedule(
+    schedule_data: ScheduleCreate,
+    current_user: User = Depends(get_current_active_user)
+):
+    # Verify mentor exists
+    mentor = await db.users.find_one({"id": schedule_data.mentor_id, "role": UserRole.MENTOR})
+    if not mentor:
+        raise HTTPException(status_code=404, detail="Mentor not found")
+    
+    # Check for conflicts
+    existing_schedule = await db.schedules.find_one({
+        "mentor_id": schedule_data.mentor_id,
+        "start_time": {"$lte": schedule_data.end_time},
+        "end_time": {"$gte": schedule_data.start_time},
+        "status": {"$in": ["scheduled", "confirmed"]}
+    })
+    
+    if existing_schedule:
+        raise HTTPException(status_code=400, detail="Time slot already booked")
+    
+    # Create schedule
+    schedule = Schedule(
+        mentor_id=schedule_data.mentor_id,
+        seeker_id=current_user.id,
+        start_time=schedule_data.start_time,
+        end_time=schedule_data.end_time,
+        title=schedule_data.title,
+        description=schedule_data.description
+    )
+    
+    await db.schedules.insert_one(schedule.dict())
+    return schedule
+
+@api_router.get("/schedules", response_model=List[Schedule])
+async def get_schedules(current_user: User = Depends(get_current_active_user)):
+    # Get schedules based on user role
+    if current_user.role == UserRole.MENTOR:
+        schedules = await db.schedules.find({"mentor_id": current_user.id}).to_list(100)
+    else:
+        schedules = await db.schedules.find({"seeker_id": current_user.id}).to_list(100)
+    
+    return [Schedule(**schedule) for schedule in schedules]
+
+@api_router.get("/schedules/{schedule_id}", response_model=Schedule)
+async def get_schedule(
+    schedule_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    schedule = await db.schedules.find_one({"id": schedule_id})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    # Check if user has access to this schedule
+    if schedule["mentor_id"] != current_user.id and schedule["seeker_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    return Schedule(**schedule)
+
+@api_router.put("/schedules/{schedule_id}", response_model=Schedule)
+async def update_schedule(
+    schedule_id: str,
+    schedule_data: ScheduleUpdate,
+    current_user: User = Depends(get_current_active_user)
+):
+    schedule = await db.schedules.find_one({"id": schedule_id})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    # Check if user has access to update this schedule
+    if schedule["mentor_id"] != current_user.id and schedule["seeker_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Update schedule
+    update_data = schedule_data.dict(exclude_unset=True)
+    update_data["updated_at"] = datetime.utcnow()
+    
+    result = await db.schedules.update_one(
+        {"id": schedule_id},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    updated_schedule = await db.schedules.find_one({"id": schedule_id})
+    return Schedule(**updated_schedule)
+
+@api_router.delete("/schedules/{schedule_id}")
+async def delete_schedule(
+    schedule_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    schedule = await db.schedules.find_one({"id": schedule_id})
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    # Check if user has access to delete this schedule
+    if schedule["mentor_id"] != current_user.id and schedule["seeker_id"] != current_user.id:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    result = await db.schedules.delete_one({"id": schedule_id})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Schedule not found")
+    
+    return {"message": "Schedule deleted successfully"}
+
 # Admin routes
 @api_router.get("/admin/mentors")
 async def get_pending_mentors(current_user: User = Depends(get_current_active_user)):
@@ -391,6 +528,39 @@ async def verify_mentor(
         raise HTTPException(status_code=404, detail="Mentor not found")
     
     return {"message": "Mentor verified successfully"}
+
+@api_router.delete("/admin/mentors/{mentor_id}")
+async def delete_mentor(
+    mentor_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Delete user and profile
+    await db.users.delete_one({"id": mentor_id})
+    await db.profiles.delete_one({"user_id": mentor_id})
+    
+    return {"message": "Mentor deleted successfully"}
+
+# Seed data endpoint (admin only)
+@api_router.post("/admin/seed-data")
+async def seed_dummy_data(current_user: User = Depends(get_current_active_user)):
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    # Import and run seed data
+    from pathlib import Path
+    import importlib.util
+    
+    seed_file = Path(__file__).parent / "seed_data.py"
+    spec = importlib.util.spec_from_file_location("seed_data", seed_file)
+    seed_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(seed_module)
+    
+    await seed_module.create_dummy_mentors()
+    
+    return {"message": "Dummy data seeded successfully"}
 
 # ================================
 # SOCKET.IO EVENTS
