@@ -123,7 +123,7 @@ const Navbar = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   return (
-    <nav className="bg-gray-900 border-b border-gray-800">
+    <nav className="bg-black border-b border-gray-800">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
@@ -142,6 +142,9 @@ const Navbar = () => {
               </Link>
               <Link to="/chat" className="text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
                 Chat
+              </Link>
+              <Link to="/schedule" className="text-gray-300 hover:text-white px-3 py-2 rounded-md text-sm font-medium">
+                Schedule
               </Link>
               {user.role === 'admin' && (
                 <Link to="/admin" className="text-yellow-400 hover:text-yellow-300 px-3 py-2 rounded-md text-sm font-medium">
@@ -175,7 +178,7 @@ const Navbar = () => {
       
       {isMenuOpen && user && (
         <div className="md:hidden">
-          <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-gray-800">
+          <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3 bg-gray-900">
             <Link to="/dashboard" className="text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
               Dashboard
             </Link>
@@ -184,6 +187,9 @@ const Navbar = () => {
             </Link>
             <Link to="/chat" className="text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
               Chat
+            </Link>
+            <Link to="/schedule" className="text-gray-300 hover:text-white block px-3 py-2 rounded-md text-base font-medium">
+              Schedule
             </Link>
             {user.role === 'admin' && (
               <Link to="/admin" className="text-yellow-400 hover:text-yellow-300 block px-3 py-2 rounded-md text-base font-medium">
